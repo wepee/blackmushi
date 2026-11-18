@@ -95,6 +95,7 @@ fn timed_request(
                         end_ms: *end_ms,
                         channel: *channel,
                         speaker_index: Some(*speaker),
+                        synthetic_timing: None,
                     }
                 })
                 .collect(),
