@@ -10,6 +10,11 @@ export const LIVE_ASSIST_MIN_NEW_WORDS = 80;
 export const LIVE_ASSIST_OVERLAP_MS = 2 * 60_000;
 export const LIVE_ASSIST_WINDOW_MAX_CHARS = 8_000;
 const LIVE_ASSIST_MAX_QUESTIONS = 3;
+const LIVE_ASSIST_MAX_TOPICS = 12;
+const LIVE_ASSIST_MAX_BULLETS = 4;
+const LIVE_ASSIST_MAX_DECISIONS = 12;
+const LIVE_ASSIST_MAX_TODOS = 25;
+const LIVE_ASSIST_MAX_COVERAGE = 10;
 type LiveAssistCoverageStatus = "covered" | "partial" | "missing";
 
 type LiveAssistQuestion = {
@@ -58,48 +63,42 @@ export const EMPTY_LIVE_ASSIST_SNAPSHOT: LiveAssistSnapshot = {
 
 const idSchema = z.string().nullable();
 
+// No length limits here: providers do not enforce them, and one item too
+// many would reject the whole update. mergeLiveAssistOutput trims instead.
 export const liveAssistOutputSchema = z.object({
   recent: z.string(),
-  topics: z
-    .array(
-      z.object({
-        id: idSchema,
-        title: z.string(),
-        start: z.string().nullable(),
-        closed: z.boolean(),
-        bullets: z.array(z.string()).max(4),
-      }),
-    )
-    .max(12),
-  decisions: z.array(z.object({ id: idSchema, text: z.string() })).max(12),
-  todos: z
-    .array(
-      z.object({
-        id: idSchema,
-        text: z.string(),
-        owner: z.string().nullable(),
-        due: z.string().nullable(),
-      }),
-    )
-    .max(25),
-  coverage: z
-    .array(
-      z.object({
-        label: z.string(),
-        status: z.enum(["covered", "partial", "missing"]),
-        evidence: z.string().nullable(),
-      }),
-    )
-    .max(10),
-  questions: z
-    .array(
-      z.object({
-        id: idSchema,
-        text: z.string(),
-        why: z.string(),
-      }),
-    )
-    .max(LIVE_ASSIST_MAX_QUESTIONS),
+  topics: z.array(
+    z.object({
+      id: idSchema,
+      title: z.string(),
+      start: z.string().nullable(),
+      closed: z.boolean(),
+      bullets: z.array(z.string()),
+    }),
+  ),
+  decisions: z.array(z.object({ id: idSchema, text: z.string() })),
+  todos: z.array(
+    z.object({
+      id: idSchema,
+      text: z.string(),
+      owner: z.string().nullable(),
+      due: z.string().nullable(),
+    }),
+  ),
+  coverage: z.array(
+    z.object({
+      label: z.string(),
+      status: z.enum(["covered", "partial", "missing"]),
+      evidence: z.string().nullable(),
+    }),
+  ),
+  questions: z.array(
+    z.object({
+      id: idSchema,
+      text: z.string(),
+      why: z.string(),
+    }),
+  ),
 });
 
 export type LiveAssistOutput = z.infer<typeof liveAssistOutputSchema>;
@@ -108,7 +107,7 @@ export const LIVE_ASSIST_SYSTEM_PROMPT = `You assist the user ("You" in the tran
 
 Fields:
 - recent: one or two sentences on what was said in the last two minutes.
-- topics: the call's topics in order, each with its start time ("mm:ss" from the transcript) and at most 4 short bullets. Mark finished topics closed.
+- topics: the call's topics in order, at most ${LIVE_ASSIST_MAX_TOPICS}, each with its start time ("mm:ss" from the transcript) and at most ${LIVE_ASSIST_MAX_BULLETS} short bullets. Mark finished topics closed. A subject that continues or details the previous one goes into that topic, not a new one.
 - decisions: only decisions stated explicitly.
 - todos: actions to do after the call that someone stated or clearly agreed to. owner: the name as said ("You" for the user), null when nobody took it. due: the deadline as said, null when none. Never invent an owner or a date.
 - coverage: one entry per point to cover listed in the input, in the same order and with the same label: "covered" when the transcript gives what the summary needs for it, "partial" when it is vague, "missing" otherwise. evidence: a few words of what was said, or null.
@@ -307,16 +306,24 @@ export function mergeLiveAssistOutput(
 
   return {
     recent: output.recent.trim(),
-    topics: withIds(previous.topics, output.topics, newId).map((topic) => ({
-      id: topic.id,
-      title: cleanText(topic.title),
-      start: topic.start,
-      closed: topic.closed,
-      bullets: topic.bullets.map(cleanText).filter(Boolean),
-    })),
+    // Over the limit, the oldest topics, decisions and todos give way: the
+    // panel follows what is being said now.
+    topics: withIds(previous.topics, output.topics, newId)
+      .map((topic) => ({
+        id: topic.id,
+        title: cleanText(topic.title),
+        start: topic.start,
+        closed: topic.closed,
+        bullets: topic.bullets
+          .map(cleanText)
+          .filter(Boolean)
+          .slice(0, LIVE_ASSIST_MAX_BULLETS),
+      }))
+      .slice(-LIVE_ASSIST_MAX_TOPICS),
     decisions: withIds(previous.decisions, output.decisions, newId)
       .map((decision) => ({ id: decision.id, text: cleanText(decision.text) }))
-      .filter((decision) => decision.text),
+      .filter((decision) => decision.text)
+      .slice(-LIVE_ASSIST_MAX_DECISIONS),
     todos: withIds(previous.todos, output.todos, newId)
       .map((todo) => ({
         id: todo.id,
@@ -324,12 +331,15 @@ export function mergeLiveAssistOutput(
         owner: todo.owner?.trim() || null,
         due: todo.due?.trim() || null,
       }))
-      .filter((todo) => todo.text),
-    coverage: output.coverage.map((point) => ({
-      label: point.label.trim(),
-      status: point.status,
-      evidence: point.evidence?.trim() || null,
-    })),
+      .filter((todo) => todo.text)
+      .slice(-LIVE_ASSIST_MAX_TODOS),
+    coverage: output.coverage
+      .map((point) => ({
+        label: point.label.trim(),
+        status: point.status,
+        evidence: point.evidence?.trim() || null,
+      }))
+      .slice(0, LIVE_ASSIST_MAX_COVERAGE),
     questions,
   };
 }

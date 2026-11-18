@@ -7,6 +7,7 @@ import {
   detectIncomingQuestions,
   EMPTY_LIVE_ASSIST_SNAPSHOT,
   type LiveAssistOutput,
+  liveAssistOutputSchema,
   matchEarlierQuestion,
   mergeLiveAssistOutput,
   shouldRunLiveAssistUpdate,
@@ -136,6 +137,34 @@ describe("mergeLiveAssistOutput", () => {
         isNew: true,
       },
     ]);
+  });
+
+  it("keeps updating a long call that outgrew the topic and bullet limits", () => {
+    const raw = output({
+      topics: Array.from({ length: 13 }, (_, index) => ({
+        id: null,
+        title: `Sujet ${index + 1}`,
+        start: null,
+        closed: index < 12,
+        bullets: ["a", "b", "c", "d", "e"],
+      })),
+    });
+
+    const parsed = liveAssistOutputSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+
+    let next = 0;
+    const merged = mergeLiveAssistOutput(EMPTY_LIVE_ASSIST_SNAPSHOT, raw, {
+      dismissed: [],
+      newId: () => `n${(next += 1)}`,
+    });
+    expect(merged.topics).toHaveLength(12);
+    expect(merged.topics[0].title).toBe("Sujet 2");
+    expect(merged.topics[11]).toMatchObject({
+      title: "Sujet 13",
+      closed: false,
+      bullets: ["a", "b", "c", "d"],
+    });
   });
 });
 
