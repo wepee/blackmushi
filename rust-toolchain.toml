@@ -1,3 +1,6 @@
 [toolchain]
-channel = "stable"
+# [fork] Pinned: Rust 1.100 moves OUT_DIR to build/<pkg>/<hash>/out, which
+# tauri-build 2.6.3 misreads when copying sidecars (fixed in tauri-build 2.7.0).
+# Back to "stable" once tauri-build is upgraded.
+channel = "1.99.1"
 components = ["rust-analyzer", "rustfmt", "clippy"]
