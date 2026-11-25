@@ -118,7 +118,9 @@ function replyText(text: string, streaming = false): string {
   }
   const body = text.slice(open + REPLY_OPEN.length);
   const close = body.indexOf("</reply>");
-  return close === -1 ? body.replace(/<\/?r?e?p?l?y?$/, "") : body.slice(0, close);
+  return close === -1
+    ? body.replace(/<\/?r?e?p?l?y?$/, "")
+    : body.slice(0, close);
 }
 
 // [[path#Title|label]] (the notes' own format) or [label]; never a bare

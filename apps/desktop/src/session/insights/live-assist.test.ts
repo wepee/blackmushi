@@ -251,15 +251,23 @@ describe("detectIncomingQuestions", () => {
     } as unknown as LiveTranscriptSegment;
 
     expect(
-      detectIncomingQuestions([room], 0).questions.map(
-        ({ text, speaker }) => ({ text, speaker }),
-      ),
-    ).toEqual([{ text: "Vous avez quel budget pour ce projet ?", speaker: "You" }]);
+      detectIncomingQuestions([room], 0).questions.map(({ text, speaker }) => ({
+        text,
+        speaker,
+      })),
+    ).toEqual([
+      { text: "Vous avez quel budget pour ce projet ?", speaker: "You" },
+    ]);
   });
 
   it("ignores the user's question sent back by the other side", () => {
     const mine = {
-      ...segment("s", 1_000, 3_000, "Ok. Et pour mettre ça en place, ça se passe comment ?"),
+      ...segment(
+        "s",
+        1_000,
+        3_000,
+        "Ok. Et pour mettre ça en place, ça se passe comment ?",
+      ),
       key: { channel: "DirectMic" },
     } as unknown as LiveTranscriptSegment;
     const echo = segment(
