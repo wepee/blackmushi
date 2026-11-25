@@ -107,7 +107,7 @@ describe("live answers", () => {
 
   it("shows only the references it was given, never while they are written", async () => {
     const { result, shown } = await answer(
-      "Notre TJM est de 600 € HT. [MEMORY.md › Tarification] [Inventé.md]",
+      "<reply>Notre TJM est de 600 € HT. [MEMORY.md › Tarification] [Inventé.md]</reply>",
     );
 
     expect(result.text).toBe("Notre TJM est de 600 € HT.");
@@ -116,10 +116,20 @@ describe("live answers", () => {
       { kind: "project", label: "MEMORY.md › Tarification", url: null },
     ]);
     expect(shown.every((value) => !value.includes("["))).toBe(true);
+    expect(shown[shown.length - 1]).toBe("Notre TJM est de 600 € HT.");
+  });
+
+  it("never shows the reasoning a model writes before its reply", async () => {
+    const { result, shown } = await answer(
+      "The user is Adam, asked by Speaker. Notes are empty.\n\n<reply>Oui, on peut se tutoyer.</reply>",
+    );
+
+    expect(result.text).toBe("Oui, on peut se tutoyer.");
+    expect(shown.every((value) => !value.includes("Adam"))).toBe(true);
   });
 
   it("never shows a declined answer", async () => {
-    const { result, shown } = await answer("SKIP");
+    const { result, shown } = await answer("<reply>SKIP</reply>");
 
     expect(result.skipped).toBe(true);
     expect(shown).toEqual([]);
@@ -137,7 +147,7 @@ describe("live answers", () => {
     const ref =
       "[[projects/lumen/MEMORY.md#Tarification|MEMORY › Tarification]]";
     const result = await streamLiveAnswer({
-      model: modelReadingThen(`La V1 est à 18 000 € HT. ${ref}`),
+      model: modelReadingThen(`<reply>La V1 est à 18 000 € HT. ${ref}</reply>`),
       providerId: "anthropic",
       modelId: "claude-haiku-5-5",
       prompt: {
@@ -211,8 +221,8 @@ describe("a reply that stops mid-way", () => {
 
   it("asks again without web search, then keeps only its finished sentences", async () => {
     const { model, calls } = modelStopping([
-      "Oui, c'est réaliste : un cockp",
-      "Oui, c'est réaliste. Chaque agent peut appeler son propre mod",
+      "<reply>Oui, c'est réaliste : un cockp",
+      "<reply>Oui, c'est réaliste. Chaque agent peut appeler son propre mod",
     ]);
 
     const result = await answerWith(model);

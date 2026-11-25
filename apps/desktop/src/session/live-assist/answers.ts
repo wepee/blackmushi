@@ -24,6 +24,8 @@ const MAX_READS = 2;
 
 const LIVE_ANSWER_SYSTEM_PROMPT = `You help the user ("You" in the transcript) answer a question during a live call. Reply with what the user could say right now: one to three short sentences, plain text, no preamble, no markdown. Never announce what you are about to do.
 
+Output format: start directly with <reply>, write the reply, end with </reply>. Only what is inside is shown. Never describe the question, the speakers, the notes or your reasoning: the reply is words the user says, in the call's language.
+
 Sources, in this order: what was said in the call; the user's notes on the project and the earlier meetings (what the user already knows); the read_notes tool, when it is available and the notes lack a fact the question needs (a section from the MEMORY summary by its theme, or a search with your own keywords: "prix tarif TJM devis" rather than the words of the question); your general knowledge for general or technical questions; the web search tool, only if one is available and the answer depends on recent or specific public facts (a price, a release, a company's news).
 
 For a technical or general question, combine: start from your knowledge and fit it to this project (its stack, constraints, choices already made, what the client asked for) as found in the notes.
@@ -34,9 +36,11 @@ A struck-through value (~~old~~ → new) is outdated: use the new one.
 
 Never invent facts about the user, their company, this project or its client: figures, prices, dates, past work, commitments, people.
 
+The user's role in the call, when given, tells who asks and who answers: never answer as the other side, and skip a question the user is the one asking.
+
 Speaker labels can be wrong: in a room with one microphone everyone shows as "You", and a colleague of the user may show as a Speaker. Judge from the content who asked and to whom.
 
-When the question was heard in the call, reply exactly SKIP if:
+When the question was heard in the call, reply exactly <reply>SKIP</reply> if:
 - it is small talk, a greeting, an audio check, or rhetorical;
 - it is not addressed to the user, or the user is the one asking it;
 - it only asks the user to agree, to decide something that is theirs to decide (a date, a price, a commitment), or how they feel;
@@ -56,6 +60,7 @@ export function buildLiveAnswerPrompt({
   callTitle,
   transcript,
   speaker,
+  userRole,
   projectName,
   notes,
   pastMeetings,
@@ -66,6 +71,7 @@ export function buildLiveAnswerPrompt({
   callTitle: string | null;
   transcript: string;
   speaker: string | null;
+  userRole: string | null;
   projectName: string | null;
   notes: string;
   pastMeetings: string;
@@ -83,6 +89,8 @@ export function buildLiveAnswerPrompt({
       pastMeetings || "(none)",
     ].join("\n"),
     request: [
+      `The user's role in the call: ${userRole ?? "(not known yet)"}`,
+      "",
       "Last minutes of the transcript:",
       transcript || "(empty)",
       "",
@@ -94,7 +102,25 @@ export function buildLiveAnswerPrompt({
 }
 
 export function isSkippedAnswer(text: string): boolean {
-  return /^\s*SKIP\b/i.test(text);
+  return /^\s*SKIP\b/i.test(replyText(text));
+}
+
+const REPLY_OPEN = "<reply>";
+
+// The reply the model wrapped in <reply> tags, without what it wrote around
+// it (a fast model without thinking sometimes reasons out loud first). A
+// reply without tags is kept whole; while the opening tag may still come,
+// nothing is shown.
+function replyText(text: string, streaming = false): string {
+  const open = text.indexOf(REPLY_OPEN);
+  if (open === -1) {
+    return streaming ? "" : text.replace(/<\/?reply>/g, "");
+  }
+  const body = text.slice(open + REPLY_OPEN.length);
+  const close = body.indexOf("</reply>");
+  return close === -1
+    ? body.replace(/<\/?r?e?p?l?y?$/, "")
+    : body.slice(0, close);
 }
 
 // [[path#Title|label]] (the notes' own format) or [label]; never a bare
@@ -284,7 +310,7 @@ export async function streamLiveAnswer({
         stepText = "";
       } else if (part.type === "text-delta") {
         stepText += part.text;
-        const shown = visibleText(stepText);
+        const shown = visibleText(replyText(stepText, true));
         if (!isSkippedAnswer(stepText) && shown.length >= 4) {
           firstTextMs ??= Date.now() - startedAt;
           onText(shown);
@@ -322,8 +348,9 @@ export async function streamLiveAnswer({
     (await attempt(tools)) &&
     (await attempt(readNotes ? { read_notes: readNotes } : {}))
   ) {
-    stepText = finishedSentences(stepText);
+    stepText = finishedSentences(replyText(stepText));
   }
+  stepText = replyText(stepText);
 
   const skipped = !stepText.trim() || isSkippedAnswer(stepText);
   const { text, refs } = extractCitations(

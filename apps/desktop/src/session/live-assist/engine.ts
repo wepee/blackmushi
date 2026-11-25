@@ -685,7 +685,7 @@ export function createLiveAssistEngine(getConfig: () => EngineConfig) {
     try {
       session.context ??= loadCallContext(sessionId);
       session.pastMeetings ??= loadPastMeetingsFor(session);
-      const { projectId } = getLiveAssistSession(sessionId);
+      const { projectId, snapshot } = getLiveAssistSession(sessionId);
       const command = config.projectsCommand.trim();
       const segments = listenerStore.getState().liveSegments;
       const lastEndMs = segments.reduce(
@@ -725,6 +725,7 @@ export function createLiveAssistEngine(getConfig: () => EngineConfig) {
         callTitle: context.title,
         transcript,
         speaker: next.speaker ?? null,
+        userRole: snapshot.userRole,
         projectName: getProjectName(session, projectId),
         notes,
         pastMeetings: pastMeetings.text,

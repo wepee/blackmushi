@@ -32,6 +32,7 @@ function segment(
 function output(partial: Partial<LiveAssistOutput> = {}): LiveAssistOutput {
   return {
     recent: "",
+    userRole: null,
     topics: [],
     decisions: [],
     todos: [],
@@ -139,6 +140,19 @@ describe("mergeLiveAssistOutput", () => {
     ]);
   });
 
+  it("keeps the user's role when an update does not restate it", () => {
+    const options = { dismissed: [], newId: () => "n" };
+    const guessed = mergeLiveAssistOutput(
+      EMPTY_LIVE_ASSIST_SNAPSHOT,
+      output({ userRole: "client qui interroge un fournisseur" }),
+      options,
+    );
+
+    expect(mergeLiveAssistOutput(guessed, output(), options).userRole).toBe(
+      "client qui interroge un fournisseur",
+    );
+  });
+
   it("keeps updating a long call that outgrew the topic and bullet limits", () => {
     const raw = output({
       topics: Array.from({ length: 13 }, (_, index) => ({
@@ -169,7 +183,7 @@ describe("mergeLiveAssistOutput", () => {
 });
 
 describe("detectIncomingQuestions", () => {
-  it("picks finished questions from every speaker, with or without a question mark", () => {
+  it("picks the other side's finished questions, with or without a question mark, not the user's own", () => {
     const remote = segment(
       "r",
       1_000,
@@ -200,7 +214,6 @@ describe("detectIncomingQuestions", () => {
         text: "Et vous facturez combien pour un audit complet ?",
         speaker: "Speaker 1",
       },
-      { text: "Vous avez quel budget pour ce projet ?", speaker: "You" },
       {
         text: "est-ce que vous pouvez m'envoyer le devis",
         speaker: "Speaker 1",
@@ -229,6 +242,52 @@ describe("detectIncomingQuestions", () => {
       "Et pour la mise en production, vous comptez combien de temps ?",
     ]);
     expect(result.lastEndMs).toBe(3_000);
+  });
+
+  it("keeps the mic's questions when everyone is on it", () => {
+    const room = {
+      ...segment("s", 1_000, 3_000, "Vous avez quel budget pour ce projet ?"),
+      key: { channel: "DirectMic" },
+    } as unknown as LiveTranscriptSegment;
+
+    expect(
+      detectIncomingQuestions([room], 0).questions.map(({ text, speaker }) => ({
+        text,
+        speaker,
+      })),
+    ).toEqual([
+      { text: "Vous avez quel budget pour ce projet ?", speaker: "You" },
+    ]);
+  });
+
+  it("ignores the user's question sent back by the other side", () => {
+    const mine = {
+      ...segment(
+        "s",
+        1_000,
+        3_000,
+        "Ok. Et pour mettre ça en place, ça se passe comment ?",
+      ),
+      key: { channel: "DirectMic" },
+    } as unknown as LiveTranscriptSegment;
+    const echo = segment(
+      "e",
+      1_800,
+      3_600,
+      "pour mettre ça en place, ça se passe comment ?",
+    );
+    const theirs = segment(
+      "r",
+      6_000,
+      8_000,
+      "Est-ce que ça t'intéresserait de tester la plateforme ?",
+    );
+
+    expect(
+      detectIncomingQuestions([mine, echo, theirs], 0).questions.map(
+        (question) => question.text,
+      ),
+    ).toEqual(["Est-ce que ça t'intéresserait de tester la plateforme ?"]);
   });
 
   it("sets aside small talk", () => {
